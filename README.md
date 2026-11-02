@@ -1,6 +1,12 @@
 # pqpg (Post-Quantum Privacy Guard)
 
-`pqpg` è una CLI crittografica moderna, universale e standalone che implementa cifrari ibridi Post-Quantum per la cifratura di file/messaggi, firme digitali e gestione delle chiavi, con supporto per il trasferimento di dati e chiavi via **QR Code Air-Gapped** direttamente nel terminale.
+`pqpg` è una CLI crittografica moderna, universale e standalone **scritta interamente in Rust puro** (memory-safe, zero dipendenze esterne in C). Implementa cifrari ibridi Post-Quantum per la cifratura di file/messaggi, firme digitali e gestione delle chiavi, con supporto nativo per il trasferimento di dati e chiavi via **QR Code Air-Gapped** direttamente nel terminale.
+
+## Perché Rust?
+
+- **Memory Safety & Hygiene**: Zero buffer overflow, zero use-after-free, azzeramento deterministico dei segreti in memoria volatile (`zeroize`) e protezione contro il paging su disco (`mlock`).
+- **Zero Dipendenze Esterne**: Non richiede OpenSSL, glibc complesse o runtime di terze parti: le primitive crittografiche (ML-KEM-768, X25519, ChaCha20-Poly1305, Ed25519) sono implementate nativamente in Rust.
+- **Portabilità Assoluta**: Compilabile come singolo binario statico (1.2 MB) per qualsiasi Linux, macOS (Apple Silicon/Intel) e Windows.
 
 ## Algoritmi Crittografici
 
