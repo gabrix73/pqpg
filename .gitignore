@@ -1,4 +1,5 @@
 /target
+pqpg-*
 **/*.rs.bk
 *.swp
 *.asc
