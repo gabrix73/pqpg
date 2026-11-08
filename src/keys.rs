@@ -3,6 +3,7 @@ use ml_kem::{EncodedSizeUser, KemCore, MlKem768};
 use rand::rngs::OsRng;
 use thiserror::Error;
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
+use zeroize::Zeroizing;
 
 #[derive(Error, Debug)]
 pub enum KeyError {
@@ -21,7 +22,7 @@ pub struct PublicKey {
 pub struct PrivateKey {
     pub ed25519_sk: SigningKey,
     pub x25519_sk: StaticSecret,
-    pub kem_sk_bytes: Vec<u8>,
+    pub kem_sk_bytes: Zeroizing<Vec<u8>>,
 }
 
 impl PublicKey {
@@ -76,7 +77,8 @@ impl PrivateKey {
 
         // 3. ML-KEM-768 keypair
         let (kem_dk, kem_ek) = MlKem768::generate(&mut OsRng);
-        let kem_sk_bytes = kem_dk.as_bytes().as_slice().to_vec();
+        let kem_sk_bytes = Zeroizing::new(kem_dk.as_bytes().as_slice().to_vec());
+        let _ = crate::mem::lock_slice(&kem_sk_bytes);
         let kem_pk_bytes = kem_ek.as_bytes().as_slice().to_vec();
 
         let priv_key = Self {
@@ -94,13 +96,14 @@ impl PrivateKey {
         (priv_key, pub_key)
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::with_capacity(4 + 1 + 32 + 32 + self.kem_sk_bytes.len());
+    pub fn to_bytes(&self) -> Zeroizing<Vec<u8>> {
+        let mut buf = Zeroizing::new(Vec::with_capacity(4 + 1 + 32 + 32 + self.kem_sk_bytes.len()));
         buf.extend_from_slice(Self::MAGIC);
         buf.push(Self::VERSION);
         buf.extend_from_slice(self.ed25519_sk.as_bytes());
         buf.extend_from_slice(&self.x25519_sk.to_bytes());
         buf.extend_from_slice(&self.kem_sk_bytes);
+        let _ = crate::mem::lock_slice(&buf);
         buf
     }
 
@@ -117,7 +120,8 @@ impl PrivateKey {
         let x_bytes: [u8; 32] = data[37..69].try_into().map_err(|_| KeyError::InvalidFormat)?;
         let x25519_sk = StaticSecret::from(x_bytes);
 
-        let kem_sk_bytes = data[69..69 + 2400].to_vec();
+        let kem_sk_bytes = Zeroizing::new(data[69..69 + 2400].to_vec());
+        let _ = crate::mem::lock_slice(&kem_sk_bytes);
 
         Ok(Self {
             ed25519_sk,

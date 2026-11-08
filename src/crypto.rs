@@ -9,6 +9,7 @@ use rand::RngCore;
 use sha2::Sha256;
 use thiserror::Error;
 use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
+use zeroize::Zeroizing;
 
 use crate::keys::{PrivateKey, PublicKey};
 
@@ -33,14 +34,14 @@ pub const NONCE_LEN: usize = 12;
 pub const HEADER_LEN: usize = 4 + 1 + KEM_CT_LEN + X25519_PK_LEN + NONCE_LEN; // 1137 bytes
 
 /// Derives a 32-byte AEAD key from hybrid KEM and X25519 shared secrets
-fn derive_hybrid_key(kem_ss: &[u8], x25519_ss: &[u8]) -> [u8; 32] {
-    let mut ikm = Vec::with_capacity(kem_ss.len() + x25519_ss.len());
+fn derive_hybrid_key(kem_ss: &[u8], x25519_ss: &[u8]) -> Zeroizing<[u8; 32]> {
+    let mut ikm = Zeroizing::new(Vec::with_capacity(kem_ss.len() + x25519_ss.len()));
     ikm.extend_from_slice(kem_ss);
     ikm.extend_from_slice(x25519_ss);
 
     let hk = Hkdf::<Sha256>::new(Some(b"PQPG-HYBRID-KEM-V1"), &ikm);
-    let mut okm = [0u8; 32];
-    hk.expand(b"chacha20-poly1305-key", &mut okm)
+    let mut okm = Zeroizing::new([0u8; 32]);
+    hk.expand(b"chacha20-poly1305-key", okm.as_mut())
         .expect("32 bytes is valid length for HKDF");
     okm
 }
@@ -59,13 +60,13 @@ pub fn encrypt_message(recipient: &PublicKey, plaintext: &[u8]) -> Result<Vec<u8
     // 2. Ephemeral X25519 Diffie-Hellman
     let ephemeral_x_sk = EphemeralSecret::random_from_rng(OsRng);
     let ephemeral_x_pk = X25519PublicKey::from(&ephemeral_x_sk);
-    let x25519_ss = ephemeral_x_sk.diffie_hellman(&recipient.x25519_pk);
+    let x25519_ss = Zeroizing::new(ephemeral_x_sk.diffie_hellman(&recipient.x25519_pk));
 
     // 3. Key derivation (hybrid KEM + DH)
     let aead_key = derive_hybrid_key(kem_ss.as_slice(), x25519_ss.as_bytes());
 
     // 4. ChaCha20-Poly1305 encryption
-    let cipher = ChaCha20Poly1305::new((&aead_key).into());
+    let cipher = ChaCha20Poly1305::new(aead_key.as_slice().into());
     let mut nonce_bytes = [0u8; NONCE_LEN];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -110,13 +111,13 @@ pub fn decrypt_message(recipient_sk: &PrivateKey, ciphertext: &[u8]) -> Result<V
 
     // 2. X25519 DH
     let ephemeral_x_pk = X25519PublicKey::from(x25519_pk_bytes);
-    let x25519_ss = recipient_sk.x25519_sk.diffie_hellman(&ephemeral_x_pk);
+    let x25519_ss = Zeroizing::new(recipient_sk.x25519_sk.diffie_hellman(&ephemeral_x_pk));
 
     // 3. Key derivation
     let aead_key = derive_hybrid_key(kem_ss.as_slice(), x25519_ss.as_bytes());
 
     // 4. ChaCha20-Poly1305 decryption
-    let cipher = ChaCha20Poly1305::new((&aead_key).into());
+    let cipher = ChaCha20Poly1305::new(aead_key.as_slice().into());
     let nonce = Nonce::from_slice(nonce_bytes);
 
     let plaintext = cipher

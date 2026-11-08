@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use zeroize::Zeroizing;
 
 use pqpg::armor::{decode_armored, encode_armored};
 use pqpg::crypto::{decrypt_message, encrypt_message, sign_data, verify_data};
@@ -166,6 +167,9 @@ fn display_qr(data: &[u8], label: &str) -> Result<(), anyhow::Error> {
 }
 
 fn main() -> anyhow::Result<()> {
+    // Lock process memory into RAM to prevent keys and plaintexts from being paged to swap
+    let _ = pqpg::mem::lock_process_memory();
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -173,7 +177,7 @@ fn main() -> anyhow::Result<()> {
             fs::create_dir_all(&out_dir)?;
             let (sk, pk) = PrivateKey::generate();
 
-            let sk_armor = encode_armored("PRIVATE KEY", &sk.to_bytes());
+            let sk_armor = Zeroizing::new(encode_armored("PRIVATE KEY", &sk.to_bytes()));
             let pk_armor = encode_armored("PUBLIC KEY", &pk.to_bytes());
 
             let sk_path = out_dir.join(format!("{}.key", name));
@@ -209,7 +213,7 @@ fn main() -> anyhow::Result<()> {
             let pk_bytes = decode_armored(&pk_raw, "PUBLIC KEY")?;
             let pk = PublicKey::from_bytes(&pk_bytes)?;
 
-            let plaintext = read_input(input.as_deref())?;
+            let plaintext = Zeroizing::new(read_input(input.as_deref())?);
             let ciphertext = encrypt_message(&pk, &plaintext)?;
             let armored = encode_armored("MESSAGE", &ciphertext);
 
@@ -225,15 +229,15 @@ fn main() -> anyhow::Result<()> {
             input,
             output,
         } => {
-            let sk_raw = fs::read_to_string(&secret_key)?;
-            let sk_bytes = decode_armored(&sk_raw, "PRIVATE KEY")?;
+            let sk_raw = Zeroizing::new(fs::read_to_string(&secret_key)?);
+            let sk_bytes = Zeroizing::new(decode_armored(&sk_raw, "PRIVATE KEY")?);
             let sk = PrivateKey::from_bytes(&sk_bytes)?;
 
             let raw_input = read_input(input.as_deref())?;
             let input_str = String::from_utf8_lossy(&raw_input);
             let ciphertext = decode_armored(&input_str, "MESSAGE")?;
 
-            let plaintext = decrypt_message(&sk, &ciphertext)?;
+            let plaintext = Zeroizing::new(decrypt_message(&sk, &ciphertext)?);
             write_output(output.as_deref(), &plaintext)?;
         }
 
@@ -243,8 +247,8 @@ fn main() -> anyhow::Result<()> {
             output,
             qr,
         } => {
-            let sk_raw = fs::read_to_string(&secret_key)?;
-            let sk_bytes = decode_armored(&sk_raw, "PRIVATE KEY")?;
+            let sk_raw = Zeroizing::new(fs::read_to_string(&secret_key)?);
+            let sk_bytes = Zeroizing::new(decode_armored(&sk_raw, "PRIVATE KEY")?);
             let sk = PrivateKey::from_bytes(&sk_bytes)?;
 
             let data = read_input(input.as_deref())?;
@@ -280,8 +284,8 @@ fn main() -> anyhow::Result<()> {
             output,
             qr,
         } => {
-            let sk_raw = fs::read_to_string(&secret_key)?;
-            let sk_bytes = decode_armored(&sk_raw, "PRIVATE KEY")?;
+            let sk_raw = Zeroizing::new(fs::read_to_string(&secret_key)?);
+            let sk_bytes = Zeroizing::new(decode_armored(&sk_raw, "PRIVATE KEY")?);
             let sk = PrivateKey::from_bytes(&sk_bytes)?;
             let pk = sk.public_key();
 

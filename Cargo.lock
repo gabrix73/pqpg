@@ -439,6 +439,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "hkdf",
+ "libc",
  "ml-kem",
  "qrcode",
  "rand",
