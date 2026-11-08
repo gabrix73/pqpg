@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<actions>
+	<action>
+		<icon>accessories-text-editor</icon>
+		<name>PQPG Text Scratchpad (GUI)</name>
+		<submenu>PQPG Tools</submenu>
+		<unique-id>1771786270802707-7</unique-id>
+		<command>~/Workspace/OpenBox/scripts/crypto/pqpg-scratchpad.py %F</command>
+		<description>Apri blocco appunti grafico in memoria per cifrare, decifrare, firmare o verificare testo</description>
+		<range>*</range>
+		<patterns>*</patterns>
+		<directories />
+		<audio-files />
+		<image-files />
+		<other-files />
+		<text-files />
+		<video-files />
+	</action>
+	<action>
+		<icon>emblem-readonly</icon>
+		<name>Cifra File (ML-KEM-768)</name>
+		<submenu>PQPG Tools</submenu>
+		<unique-id>1771786270802701-1</unique-id>
+		<command>~/Workspace/OpenBox/scripts/crypto/pqpg-encrypt.sh %F</command>
+		<description>Cifra file con chiave ibrida post-quantum (ML-KEM-768 + X25519)</description>
+		<range>*</range>
+		<patterns>*</patterns>
+		<audio-files />
+		<image-files />
+		<other-files />
+		<text-files />
+		<video-files />
+	</action>
+	<action>
+		<icon>folder</icon>
+		<name>Cifra Cartella (.tar.pqpg)</name>
+		<submenu>PQPG Tools</submenu>
+		<unique-id>1771786270802702-2</unique-id>
+		<command>~/Workspace/OpenBox/scripts/crypto/pqpg-encrypt-folder.sh %F</command>
+		<description>Comprime e cifra cartelle in archivio ibrido post-quantum .tar.pqpg</description>
+		<range>*</range>
+		<patterns>*</patterns>
+		<directories />
+	</action>
+	<action>
+		<icon>emblem-unlocked</icon>
+		<name>Decifra (PQPG)</name>
+		<submenu>PQPG Tools</submenu>
+		<unique-id>1771786270802703-3</unique-id>
+		<command>~/Workspace/OpenBox/scripts/crypto/pqpg-decrypt.sh %F</command>
+		<description>Decifra file o archivio .pqpg con la tua chiave privata</description>
+		<range>*</range>
+		<patterns>*.pqpg;*.tar.pqpg</patterns>
+		<audio-files />
+		<image-files />
+		<other-files />
+		<text-files />
+		<video-files />
+	</action>
+	<action>
+		<icon>emblem-important</icon>
+		<name>Firma Digitale (Ed25519)</name>
+		<submenu>PQPG Tools</submenu>
+		<unique-id>1771786270802704-4</unique-id>
+		<command>~/Workspace/OpenBox/scripts/crypto/pqpg-sign.sh %F</command>
+		<description>Appone firma digitale Ed25519 (.pqpg.sig)</description>
+		<range>*</range>
+		<patterns>*</patterns>
+		<audio-files />
+		<image-files />
+		<other-files />
+		<text-files />
+		<video-files />
+	</action>
+	<action>
+		<icon>emblem-verified</icon>
+		<name>Verifica Firma</name>
+		<submenu>PQPG Tools</submenu>
+		<unique-id>1771786270802705-5</unique-id>
+		<command>~/Workspace/OpenBox/scripts/crypto/pqpg-verify.sh %F</command>
+		<description>Verifica integrità e firmatario della firma digitale</description>
+		<range>*</range>
+		<patterns>*.sig;*.pqpg.sig</patterns>
+		<audio-files />
+		<image-files />
+		<other-files />
+		<text-files />
+		<video-files />
+	</action>
+	<action>
+		<icon>dialog-password</icon>
+		<name>Mia Chiave Pubblica / QR</name>
+		<submenu>PQPG Tools</submenu>
+		<unique-id>1771786270802706-6</unique-id>
+		<command>~/Workspace/OpenBox/scripts/crypto/pqpg-show-key.sh</command>
+		<description>Visualizza, esporta o condividi via QR la tua chiave pubblica</description>
+		<range>*</range>
+		<patterns>*</patterns>
+		<directories />
+		<audio-files />
+		<image-files />
+		<other-files />
+		<text-files />
+		<video-files />
+	</action>
+</actions>

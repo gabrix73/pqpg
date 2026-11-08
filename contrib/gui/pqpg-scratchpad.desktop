@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=PQPG Text Scratchpad
+Comment=Post-Quantum In-Memory Text Encryption, Decryption, Sign and Verify (ML-KEM-768 + Ed25519)
+Exec=/home/gabriel1/Workspace/OpenBox/scripts/crypto/pqpg-scratchpad.py %F
+Icon=dialog-password
+Terminal=false
+Type=Application
+Categories=Utility;Security;Cryptography;GTK;
+StartupNotify=true
+MimeType=text/plain;

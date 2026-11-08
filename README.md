@@ -69,6 +69,18 @@ pqpg verify -k alice.pub -s documento.sig documento.pdf
 pqpg qr chiave_o_messaggio.txt
 ```
 
+## Applicazioni e Integrazioni Desktop
+
+Oltre alla CLI standalone, il repository include strumenti grafici pronti all'uso:
+
+- **GUI Text Scratchpad (`contrib/gui/`)**:
+  Applicazione grafica Python/GTK3 per la cifratura, decifratura, firma e verifica di testi interamente in memoria RAM (zero scritture su disco), con selezione contatti da rubrica locale e visualizzazione QR code a video.
+  Consultare [`contrib/gui/README.md`](contrib/gui/README.md) per i dettagli.
+
+- **Integrazione File Manager Thunar (`integrations/thunar/`)**:
+  Suite di azioni contestuali e script Zenity per integrare il tasto destro di Thunar: cifratura/decifratura di singoli file o cartelle compresse (`.tar.pqpg`), apposizione e verifica firme Ed25519, e condivisione chiavi via QR.
+  Consultare [`integrations/thunar/README.md`](integrations/thunar/README.md) per la configurazione.
+
 ## Licenza
 
 AGPL-3.0
