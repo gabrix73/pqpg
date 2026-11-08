@@ -53,7 +53,8 @@ pub fn encrypt_message(recipient: &PublicKey, plaintext: &[u8]) -> Result<Vec<u8
     }
 
     // 1. ML-KEM-768 encapsulation
-    let ek_encoded = Encoded::<<MlKem768 as KemCore>::EncapsulationKey>::clone_from_slice(&recipient.kem_pk_bytes);
+    let ek_encoded = Encoded::<<MlKem768 as KemCore>::EncapsulationKey>::try_from(recipient.kem_pk_bytes.as_slice())
+        .map_err(|_| CryptoError::InvalidFormat)?;
     let ek = <MlKem768 as KemCore>::EncapsulationKey::from_bytes(&ek_encoded);
     let (kem_ct, kem_ss) = ek.encapsulate(&mut OsRng).map_err(|_| CryptoError::KemError)?;
 
@@ -104,9 +105,11 @@ pub fn decrypt_message(recipient_sk: &PrivateKey, ciphertext: &[u8]) -> Result<V
     let payload = &ciphertext[HEADER_LEN..];
 
     // 1. ML-KEM-768 decapsulation
-    let dk_encoded = Encoded::<<MlKem768 as KemCore>::DecapsulationKey>::clone_from_slice(&recipient_sk.kem_sk_bytes);
+    let dk_encoded = Encoded::<<MlKem768 as KemCore>::DecapsulationKey>::try_from(recipient_sk.kem_sk_bytes.as_slice())
+        .map_err(|_| CryptoError::InvalidFormat)?;
     let dk = <MlKem768 as KemCore>::DecapsulationKey::from_bytes(&dk_encoded);
-    let ct_encoded = ml_kem::Ciphertext::<MlKem768>::clone_from_slice(kem_ct_bytes);
+    let ct_encoded = ml_kem::Ciphertext::<MlKem768>::try_from(kem_ct_bytes)
+        .map_err(|_| CryptoError::InvalidFormat)?;
     let kem_ss = dk.decapsulate(&ct_encoded).map_err(|_| CryptoError::KemError)?;
 
     // 2. X25519 DH

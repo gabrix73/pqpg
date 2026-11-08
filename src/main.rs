@@ -151,10 +151,31 @@ fn write_output(output: Option<&Path>, data: &[u8]) -> Result<(), anyhow::Error>
     }
 }
 
+fn get_terminal_width() -> Option<usize> {
+    unsafe {
+        let mut winsize: libc::winsize = std::mem::zeroed();
+        if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut winsize) == 0 && winsize.ws_col > 0 {
+            Some(winsize.ws_col as usize)
+        } else {
+            std::env::var("COLUMNS").ok().and_then(|s| s.parse().ok())
+        }
+    }
+}
+
 fn display_qr(data: &[u8], label: &str) -> Result<(), anyhow::Error> {
     match render_terminal_qr(data) {
         Ok(qr_str) => {
             eprintln!("\n=== Air-Gapped QR Code ({}) ===", label);
+            let qr_width = qr_str.lines().next().map(|l| l.chars().count()).unwrap_or(0);
+            if let Some(term_width) = get_terminal_width() {
+                if term_width < qr_width {
+                    eprintln!(
+                        "Nota: Larghezza terminale ({} col) inferiore a QR code ({} col).\n\
+                         Allarga la finestra o usa Ctrl+- per rimpicciolire il font ed evitare righe a capo.\n",
+                        term_width, qr_width
+                    );
+                }
+            }
             eprintln!("{}", qr_str);
             eprintln!("==============================================\n");
             Ok(())
