@@ -30,8 +30,20 @@ case "$ACTION" in
             --filename="$PQPG_PUBKEY" --editable=false --width=650 --height=450
         ;;
     "Mostra QR Code")
-        if command -v x-terminal-emulator >/dev/null 2>&1; then
-            x-terminal-emulator -T "PQPG Air-Gapped QR Code" -e bash -c "\"$PQPG_BIN\" qr \"$PQPG_PUBKEY\"; echo ''; read -n 1 -s -r -p 'Premi un tasto per chiudere...'" &
+        RUNNER="$(mktemp /tmp/pqpg-qr-XXXXXX.sh)"
+        cat << EOF > "$RUNNER"
+#!/bin/bash
+trap 'rm -f "\$0"' EXIT
+"$PQPG_BIN" qr "$PQPG_PUBKEY"
+echo ""
+read -n 1 -s -r -p "Premi un tasto per chiudere..."
+EOF
+        chmod +x "$RUNNER"
+        REAL_TERM="$(readlink -f "$(command -v x-terminal-emulator 2>/dev/null)" 2>/dev/null || echo "")"
+        if [[ "$REAL_TERM" == *"terminator"* ]] || command -v terminator >/dev/null 2>&1; then
+            terminator -u --geometry=950x850 -T "PQPG Air-Gapped QR Code" -x /bin/bash "$RUNNER" &
+        elif command -v x-terminal-emulator >/dev/null 2>&1; then
+            x-terminal-emulator -T "PQPG Air-Gapped QR Code" -e /bin/bash "$RUNNER" &
         else
             zenity --info --title="PQPG Tools" --text="Terminale non disponibile per visualizzare il QR code."
         fi

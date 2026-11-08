@@ -389,6 +389,40 @@ class PQPGScratchpad(Gtk.Window):
             if os.path.exists(sig_file):
                 os.unlink(sig_file)
 
+    def launch_terminal_qr(self, title, input_file, temp_file_to_clean=None):
+        runner = tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False)
+        runner_path = runner.name
+        cleanup_lines = f'rm -f "{temp_file_to_clean}"\n' if temp_file_to_clean else ""
+        runner.write(f"""#!/bin/bash
+trap 'rm -f "{runner_path}"' EXIT
+"{PQPG_BIN}" qr "{input_file}"
+{cleanup_lines}echo ""
+read -n 1 -s -r -p "Premi un tasto per chiudere..."
+""")
+        runner.close()
+        os.chmod(runner_path, 0o755)
+
+        term_bin = shutil.which("terminator") or shutil.which("x-terminal-emulator") or shutil.which("xterm")
+        if not term_bin:
+            self.set_status("Nessun emulatore di terminale trovato.", color="red")
+            return
+
+        real_term = os.path.realpath(term_bin)
+        if "terminator" in real_term:
+            cmd = [term_bin, "-u", "--geometry=950x850", "-T", title, "-x", "/bin/bash", runner_path]
+        elif "gnome-terminal" in real_term:
+            cmd = [term_bin, "--title", title, "--geometry=100x45", "--", "/bin/bash", runner_path]
+        elif "xfce4-terminal" in real_term:
+            cmd = [term_bin, "-T", title, "--geometry=100x45", "-x", "/bin/bash", runner_path]
+        else:
+            cmd = [term_bin, "-T", title, "-e", f"/bin/bash {runner_path}"]
+
+        try:
+            subprocess.Popen(cmd)
+            self.set_status("Terminale QR Code visualizzato con successo.", color="green")
+        except Exception as e:
+            self.set_status(f"Impossibile aprire terminale QR: {e}", color="red")
+
     def on_show_qr(self, widget):
         armored = self.get_text(self.txt_armored)
         if not armored.strip():
@@ -401,15 +435,7 @@ class PQPGScratchpad(Gtk.Window):
             tf.write(armored)
             tmp_path = tf.name
 
-        try:
-            subprocess.Popen([
-                "x-terminal-emulator",
-                "-T", "PQPG Air-Gapped QR Code",
-                "-e", "bash", "-c",
-                f'"{PQPG_BIN}" qr "{tmp_path}"; echo ""; read -n 1 -s -r -p "Premi un tasto per chiudere..."; rm -f "{tmp_path}"'
-            ])
-        except Exception as e:
-            self.set_status(f"Impossibile aprire terminale QR: {e}", color="red")
+        self.launch_terminal_qr("PQPG Air-Gapped QR Code", tmp_path, temp_file_to_clean=tmp_path)
 
     def on_manage_keys(self, widget):
         dialog = Gtk.Dialog(
@@ -500,12 +526,10 @@ class PQPGScratchpad(Gtk.Window):
             self.set_status("Chiave pubblica copiata negli appunti!", color="blue")
 
     def on_show_self_qr(self, widget):
-        subprocess.Popen([
-            "x-terminal-emulator",
-            "-T", "PQPG Public Key QR Code",
-            "-e", "bash", "-c",
-            f'"{PQPG_BIN}" qr "{PQPG_PUBKEY}"; echo ""; read -n 1 -s -r -p "Premi un tasto per chiudere..."'
-        ])
+        if not os.path.exists(PQPG_PUBKEY):
+            self.set_status("Chiave pubblica non trovata in ~/.config/pqpg/identity.pub", color="red")
+            return
+        self.launch_terminal_qr("PQPG Public Key QR Code", PQPG_PUBKEY)
 
     def on_publish_pigeonhole(self, widget):
         tool = shutil.which("pqkeys-tool")
