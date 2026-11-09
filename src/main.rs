@@ -8,15 +8,18 @@ use zeroize::Zeroizing;
 use pqpg::armor::{decode_armored, encode_armored};
 use pqpg::crypto::{decrypt_message, encrypt_message, sign_data, verify_data};
 use pqpg::keys::{PrivateKey, PublicKey};
+use pqpg::keyserver::{
+    compute_fingerprint, list_keys, lookup_key, publish_key, revoke_key, DEFAULT_KEYSERVER_ADDR,
+};
 use pqpg::qr::render_terminal_qr;
 
 #[derive(Parser, Debug)]
 #[command(
     name = "pqpg",
     author = "Gab Virebent <gabriel1@virebent.art>",
-    version = "0.1.0",
+    version = "0.2.0",
     about = "Post-Quantum Privacy Guard: lightweight CLI for hybrid post-quantum file encryption, signing and key management",
-    long_about = "pqpg is a modern, standalone command-line tool implementing NIST FIPS 203 ML-KEM-768\ncombined with X25519 and ChaCha20-Poly1305 for post-quantum forward-secure encryption,\nand Ed25519 for digital signatures with optional Air-Gapped QR code transfer."
+    long_about = "pqpg is a modern, standalone command-line tool implementing NIST FIPS 203 ML-KEM-768\ncombined with X25519 and ChaCha20-Poly1305 (using HPQC Split-PRF KEM combiner architecture)\nfor post-quantum forward-secure encryption, Ed25519 for digital signatures with Air-Gapped\nQR codes, and direct interop with Katzenpost / Pigeonhole PQKeys public key directory service."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -42,9 +45,13 @@ enum Commands {
 
     /// Encrypt a file or stream for a recipient's post-quantum public key
     Encrypt {
-        /// Recipient's public key file (.pub)
+        /// Recipient's public key file (.pub), or user ID/fingerprint when resolved via --keyserver
         #[arg(short, long)]
-        recipient: PathBuf,
+        recipient: String,
+
+        /// Optional PQKeys keyserver address (host:port) to fetch recipient key
+        #[arg(long)]
+        keyserver: Option<String>,
 
         /// Input file to encrypt (reads from stdin if omitted)
         input: Option<PathBuf>,
@@ -124,6 +131,84 @@ enum Commands {
         /// Input file to render as QR code (reads from stdin if omitted)
         input: Option<PathBuf>,
     },
+
+    /// Interoperate with Katzenpost / Pigeonhole PQKeys directory service
+    #[command(subcommand)]
+    Keyserver(KeyserverCommands),
+}
+
+#[derive(Subcommand, Debug)]
+enum KeyserverCommands {
+    /// Publish your post-quantum public key with self-signature to PQKeys service
+    Publish {
+        /// Public key file (.pub)
+        #[arg(short, long)]
+        public_key: PathBuf,
+
+        /// Private key file (.key) to generate self-signature
+        #[arg(short = 'k', long)]
+        secret_key: PathBuf,
+
+        /// User identifier or alias (e.g. alice@katzenpost.mix)
+        #[arg(short, long, default_value = "")]
+        user: String,
+
+        /// PQKeys service address (host:port)
+        #[arg(long, default_value = DEFAULT_KEYSERVER_ADDR)]
+        server: String,
+    },
+
+    /// Lookup a post-quantum public key by UserID or fingerprint and verify its self-signature
+    Lookup {
+        /// Query: User ID (e.g. alice@katzenpost.mix) or 64-character hex fingerprint
+        query: String,
+
+        /// Save the verified public key to a file (.pub)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Display public key as terminal QR code
+        #[arg(long)]
+        qr: bool,
+
+        /// PQKeys service address (host:port)
+        #[arg(long, default_value = DEFAULT_KEYSERVER_ADDR)]
+        server: String,
+    },
+
+    /// Revoke a registered post-quantum public key
+    Revoke {
+        /// Public key file (.pub) of the key to revoke
+        #[arg(short, long)]
+        public_key: PathBuf,
+
+        /// Private key file (.key) to authenticate revocation
+        #[arg(short = 'k', long)]
+        secret_key: PathBuf,
+
+        /// Reason for revocation (e.g. "Key compromised" or "Superseded")
+        #[arg(short, long, default_value = "Revoked by owner")]
+        reason: String,
+
+        /// PQKeys service address (host:port)
+        #[arg(long, default_value = DEFAULT_KEYSERVER_ADDR)]
+        server: String,
+    },
+
+    /// List registered post-quantum public keys
+    List {
+        /// Max records to fetch (default: 50)
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+
+        /// Pagination offset (default: 0)
+        #[arg(long, default_value_t = 0)]
+        offset: usize,
+
+        /// PQKeys service address (host:port)
+        #[arg(long, default_value = DEFAULT_KEYSERVER_ADDR)]
+        server: String,
+    },
 }
 
 fn read_input(input: Option<&Path>) -> Result<Vec<u8>, anyhow::Error> {
@@ -151,45 +236,15 @@ fn write_output(output: Option<&Path>, data: &[u8]) -> Result<(), anyhow::Error>
     }
 }
 
-fn get_terminal_width() -> Option<usize> {
-    unsafe {
-        let mut winsize: libc::winsize = std::mem::zeroed();
-        if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut winsize) == 0 && winsize.ws_col > 0 {
-            Some(winsize.ws_col as usize)
-        } else {
-            std::env::var("COLUMNS").ok().and_then(|s| s.parse().ok())
-        }
-    }
+fn display_qr(data: &[u8], title: &str) -> Result<(), anyhow::Error> {
+    let qr_str = render_terminal_qr(data)?;
+    println!("\n--- [AIRGAP QR CODE: {}] ---", title);
+    println!("{}", qr_str);
+    Ok(())
 }
 
-fn display_qr(data: &[u8], label: &str) -> Result<(), anyhow::Error> {
-    match render_terminal_qr(data) {
-        Ok(qr_str) => {
-            eprintln!("\n=== Air-Gapped QR Code ({}) ===", label);
-            let qr_width = qr_str.lines().next().map(|l| l.chars().count()).unwrap_or(0);
-            if let Some(term_width) = get_terminal_width() {
-                if term_width < qr_width {
-                    eprintln!(
-                        "Nota: Larghezza terminale ({} col) inferiore a QR code ({} col).\n\
-                         Allarga la finestra o usa Ctrl+- per rimpicciolire il font ed evitare righe a capo.\n",
-                        term_width, qr_width
-                    );
-                }
-            }
-            eprintln!("{}", qr_str);
-            eprintln!("==============================================\n");
-            Ok(())
-        }
-        Err(e) => {
-            eprintln!("Notice: Data exceeds single QR code limit ({} bytes): {}", data.len(), e);
-            Ok(())
-        }
-    }
-}
-
-fn main() -> anyhow::Result<()> {
-    // Lock process memory into RAM to prevent keys and plaintexts from being paged to swap
-    let _ = pqpg::mem::lock_process_memory();
+fn main() -> Result<(), anyhow::Error> {
+    pqpg::mem::lock_process_memory();
 
     let cli = Cli::parse();
 
@@ -216,22 +271,36 @@ fn main() -> anyhow::Result<()> {
             eprintln!("Generated PQPG hybrid post-quantum keypair:");
             eprintln!("  Private key: {} (mode 0600)", sk_path.display());
             eprintln!("  Public key:  {}", pk_path.display());
-            eprintln!("  Algorithms:  ML-KEM-768 (FIPS 203) + X25519 (DH) + Ed25519 (Sign)");
+            eprintln!("  Fingerprint: {}", compute_fingerprint(&pk_armor));
+            eprintln!("  Combiner:    HPQC Split-PRF (ML-KEM-768 + X25519) + Ed25519 (Sign)");
 
             if qr {
-                // Render raw binary public key (1253 bytes) into high-density QR code
                 display_qr(&pk.to_bytes(), "Public Key (Binary)")?;
             }
         }
 
         Commands::Encrypt {
             recipient,
+            keyserver,
             input,
             output,
             qr,
         } => {
-            let pk_raw = fs::read_to_string(&recipient)?;
-            let pk_bytes = decode_armored(&pk_raw, "PUBLIC KEY")?;
+            let pk_armored = if Path::new(&recipient).exists() {
+                fs::read_to_string(&recipient)?
+            } else if let Some(srv) = keyserver.as_deref() {
+                eprintln!("[PQKeys] Fetching public key for '{}' from {}...", recipient, srv);
+                let rec = lookup_key(srv, &recipient)?;
+                eprintln!("[PQKeys] ✓ Verified self-signature for '{}' (Fingerprint: {})", recipient, rec.fingerprint);
+                rec.armored_public_key
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Recipient '{}' is not a local file. To resolve via Katzenpost directory, specify --keyserver <host:port>",
+                    recipient
+                ));
+            };
+
+            let pk_bytes = decode_armored(&pk_armored, "PUBLIC KEY")?;
             let pk = PublicKey::from_bytes(&pk_bytes)?;
 
             let plaintext = Zeroizing::new(read_input(input.as_deref())?);
@@ -323,6 +392,101 @@ fn main() -> anyhow::Result<()> {
             let data = read_input(input.as_deref())?;
             display_qr(&data, "Terminal QR")?;
         }
+
+        Commands::Keyserver(subcmd) => match subcmd {
+            KeyserverCommands::Publish {
+                public_key,
+                secret_key,
+                user,
+                server,
+            } => {
+                let pk_armored = fs::read_to_string(&public_key)?;
+                let sk_raw = Zeroizing::new(fs::read_to_string(&secret_key)?);
+                let sk_bytes = Zeroizing::new(decode_armored(&sk_raw, "PRIVATE KEY")?);
+                let sk = PrivateKey::from_bytes(&sk_bytes)?;
+
+                let rec = publish_key(&server, &user, &pk_armored, &sk.ed25519_sk)?;
+                println!("✓ Post-quantum public key successfully published to PQKeys service!");
+                println!("  Server:      {}", server);
+                println!("  Fingerprint: {}", rec.fingerprint);
+                println!("  User ID:     {}", rec.user_id);
+                println!("  Timestamp:   {}", rec.timestamp);
+            }
+
+            KeyserverCommands::Lookup {
+                query,
+                output,
+                qr,
+                server,
+            } => {
+                let rec = lookup_key(&server, &query)?;
+                println!("✓ Public key retrieved and self-signature verified:");
+                println!("  Server:      {}", server);
+                println!("  Fingerprint: {}", rec.fingerprint);
+                println!("  User ID:     {}", rec.user_id);
+                println!("  Timestamp:   {}", rec.timestamp);
+                println!("  Revoked:     {}", rec.revoked);
+                if rec.revoked {
+                    println!("  Reason:      {}", rec.revocation_reason);
+                }
+
+                if let Some(out_path) = output {
+                    fs::write(&out_path, &rec.armored_public_key)?;
+                    println!("  Saved to:    {}", out_path.display());
+                } else {
+                    println!("\n{}", rec.armored_public_key);
+                }
+
+                if qr {
+                    let raw_pub = decode_armored(&rec.armored_public_key, "PUBLIC KEY")
+                        .map_err(|e| anyhow::anyhow!("Decoding public key for QR: {}", e))?;
+                    display_qr(&raw_pub, "Verified Public Key")?;
+                }
+            }
+
+            KeyserverCommands::Revoke {
+                public_key,
+                secret_key,
+                reason,
+                server,
+            } => {
+                let pk_armored = fs::read_to_string(&public_key)?;
+                let sk_raw = Zeroizing::new(fs::read_to_string(&secret_key)?);
+                let sk_bytes = Zeroizing::new(decode_armored(&sk_raw, "PRIVATE KEY")?);
+                let sk = PrivateKey::from_bytes(&sk_bytes)?;
+
+                let rec = revoke_key(&server, &pk_armored, &sk.ed25519_sk, &reason)?;
+                println!("✓ Post-quantum public key revoked successfully:");
+                println!("  Server:      {}", server);
+                println!("  Fingerprint: {}", rec.fingerprint);
+                println!("  Revoked:     {}", rec.revoked);
+                println!("  Reason:      {}", rec.revocation_reason);
+            }
+
+            KeyserverCommands::List {
+                limit,
+                offset,
+                server,
+            } => {
+                let summaries = list_keys(&server, limit, offset)?;
+                println!("=== PQKeys Registered Keys ({}) ===", server);
+                if summaries.is_empty() {
+                    println!("(No keys found)");
+                } else {
+                    for (i, item) in summaries.iter().enumerate() {
+                        let status = if item.revoked { "[REVOKED]" } else { "[ACTIVE]" };
+                        println!(
+                            "{:02}. {} {} | User: {} | TS: {}",
+                            offset + i + 1,
+                            status,
+                            item.fingerprint,
+                            if item.user_id.is_empty() { "-" } else { &item.user_id },
+                            item.timestamp
+                        );
+                    }
+                }
+            }
+        },
     }
 
     Ok(())
